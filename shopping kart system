@@ -1,0 +1,209 @@
+CREATE TABLE Users (
+ user_id INT AUTO_INCREMENT PRIMARY KEY,
+ name VARCHAR(100),
+ email VARCHAR(100)
+);
+-- Items table
+CREATE TABLE Items (
+ item_id INT AUTO_INCREMENT PRIMARY KEY,
+ name VARCHAR(100),
+ price DECIMAL(10,2),
+ stock INT
+);
+-- Cart table
+CREATE TABLE Cart (
+ cart_id INT AUTO_INCREMENT PRIMARY KEY,
+ user_id INT,
+ item_id INT,
+ quantity INT
+);
+-- Orders table
+CREATE TABLE Orders (
+ order_id INT AUTO_INCREMENT PRIMARY KEY,
+ user_id INT,
+ total_amount DECIMAL(10,2),
+ order_date DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+-- Order items table
+CREATE TABLE Order_Items (
+ order_id INT,
+ item_id INT,
+ quantity INT,
+ price DECIMAL(10,2)
+);
+-- Add user Aditi
+INSERT INTO Users (name, email) VALUES ('Aditi', 'aditi@example.com');
+-- Insert items (in INR)
+INSERT INTO Items (name, price, stock) VALUES
+('Apples', 50.00, 100),
+('Bananas', 30.00, 150),
+('Oranges', 60.00, 80),
+('Grapes', 90.00, 50);
+Backend Code (Flask)
+from flask import Flask, request, jsonify
+import mysql.connector
+app = Flask(__name__)
+# Database connection
+db = mysql.connector.connect(
+ host="localhost",
+ user="root",
+ password="",
+ database="shop"
+)
+cursor = db.cursor(dictionary=True)
+# Route to get all available items
+@app.route("/items", methods=["GET"])
+def get_items():
+ cursor.execute("SELECT * FROM Items")
+ return jsonify(cursor.fetchall())
+# Add item to cart
+@app.route("/cart", methods=["POST"])
+def add_to_cart():
+ data = request.json
+ user_id = data['user_id']
+ item_id = data['item_id']
+ quantity = data.get('quantity', 1)
+ # Check availability of item
+ cursor.execute("SELECT stock FROM Items WHERE item_id = %s", (item_id,))
+ item = cursor.fetchone()
+ if not item:
+ return jsonify({"error": "Item not found"}), 404
+ if item['stock'] < quantity:
+ return jsonify({"error": "Not enough stock available"}), 400
+ # Add item to cart or update quantity
+ cursor.execute("SELECT * FROM Cart WHERE user_id = %s AND item_id = %s", (user_id, item_id))
+ existing = cursor.fetchone()
+ if existing:
+ cursor.execute(
+ "UPDATE Cart SET quantity = quantity + %s WHERE user_id = %s AND item_id = %s",
+ (quantity, user_id, item_id)
+ )
+ else:
+ cursor.execute(
+ "INSERT INTO Cart (user_id, item_id, quantity) VALUES (%s, %s, %s)",
+ (user_id, item_id, quantity)
+ )
+ db.commit()
+ return jsonify({"message": "Item added to cart!"})
+# Checkout route
+@app.route("/checkout", methods=["POST"])
+def checkout():
+ data = request.json
+ user_id = data['user_id']
+ # Get items from cart
+ cursor.execute("""
+ SELECT c.item_id, c.quantity, i.price
+ FROM Cart c JOIN Items i ON c.item_id = i.item_id
+ WHERE c.user_id = %s
+ """, (user_id,))
+ cart_items = cursor.fetchall()
+ if not cart_items:
+ return jsonify({"message": "Cart is empty"}), 400
+ # Calculate total
+ total = sum(item['price'] * item['quantity'] for item in cart_items)
+ # Create order
+ cursor.execute("INSERT INTO Orders (user_id, total_amount) VALUES (%s, %s)", (user_id, total))
+ order_id = cursor.lastrowid
+ # Insert order items & update stock
+ for item in cart_items:
+ cursor.execute(
+ "INSERT INTO Order_Items (order_id, item_id, quantity, price) VALUES (%s, %s, %s, %s)",
+ (order_id, item['item_id'], item['quantity'], item['price'])
+ )
+ cursor.execute(
+ "UPDATE Items SET stock = stock - %s WHERE item_id = %s",
+ (item['quantity'], item['item_id'])
+ )
+ # Clear cart
+ cursor.execute("DELETE FROM Cart WHERE user_id = %s", (user_id,))
+ db.commit()
+ return jsonify({"message": "Checked out successfully!"})
+if __name__ == "__main__":
+ app.run(debug=True)
+Add to Cart Page (HTML + JS)
+<!DOCTYPE html>
+<html>
+<head>
+ <title>Add to Cart - Aditi</title>
+</head>
+<body>
+ <h2>Welcome Aditi! Add Fruits to Your Cart</h2>
+ <ul id="itemList"></ul>
+ <script>
+ const user_id = 1; // Aditi's user_id
+ async function loadItems() {
+ const res = await fetch("http://localhost:5000/items");
+ const items = await res.json();
+ const itemList = document.getElementById("itemList");
+ itemList.innerHTML = "";
+ items.forEach(item => {
+ itemList.innerHTML += `
+ <li>
+ ${item.name} - ₹${item.price} (Stock: ${item.stock})
+ <button onclick="addToCart(${item.item_id})">Add to Cart</button>
+ </li>
+ `;
+ });
+ }
+ async function addToCart(item_id) {
+ const res = await fetch("http://localhost:5000/cart", {
+ method: "POST",
+ headers: {"Content-Type": "application/json"},
+ body: JSON.stringify({
+ user_id: user_id,
+ item_id: item_id,
+ quantity: 1
+ })
+ });
+ const result = await res.json();
+ if (res.ok) {
+ alert("Item added to cart!");
+ } else {
+ alert("Error: " + result.error);
+ }
+ }
+ loadItems();
+ </script>
+</body>
+</html>
+Checkout Page (HTML + JS)
+<!DOCTYPE html>
+<html>
+<head>
+ <title>Checkout - Aditi</title>
+</head>
+<body>
+ <h2>Checkout Page for Aditi</h2>
+ <ul id="cartItems"></ul>
+ <h3 id="total"></h3>
+ <button onclick="checkout()">Checkout</button>
+ <script>
+ const user_id = 1; // Aditi's user_id
+ async function loadCart() {
+ const res = await fetch("http://localhost:5000/items");
+ const items = await res.json();
+ const cartRes = await fetch("http://localhost:5000/items");
+ const allItems = await cartRes.json();
+ // Simulate cart
+ const cartItems = [
+ { name: "Grapes", price: 90, quantity: 2 },
+ { name: "Bananas", price: 30, quantity: 1 }
+ ];
+ let total = 0;
+ const list = document.getElementById("cartItems");
+ list.innerHTML = "";
+ cartItems.forEach(item => {
+ const cost = item.price * item.quantity;
+ total += cost;
+ list.innerHTML += `<li>${item.name} - ₹${item.price} x ${item.quantity} = ₹${cost}</li>`;
+ });
+ document.getElementById("total").textContent = "Total: ₹" + total;
+ }
+ async function checkout() {
+ await fetch("http://localhost:5000/checkout", {
+ method: "POST",
+ headers: {"Content-Type": "application/json"},
+ body: JSON.stringify({user_id: 1})
+ });
+ alert("Checked out successfully!");
+ window.location.re
