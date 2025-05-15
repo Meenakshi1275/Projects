@@ -1,0 +1,49 @@
+import streamlit as st
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+st.set_page_config(page_title="Home Decor Budget Analyzer", layout="wide")
+st.title(" Home Decor Budget Recommendation & Analysis")
+uploaded_file = st.file_uploader("Upload your CSV file", type=["csv"])
+if uploaded_file:
+df = pd.read_csv(uploaded_file)
+st.subheader(" Raw Data")
+st.dataframe(df.head())
+st.subheader(" Data Analysis")
+st.markdown("**Age Distribution**")
+fig1, ax1 = plt.subplots()
+sns.histplot(df['Age'], kde=True, ax=ax1, color="skyblue")
+st.pyplot(fig1)
+# Income Distribution
+st.markdown("**Monthly Income Distribution**")
+fig2, ax2 = plt.subplots()
+sns.histplot(df['Monthly Income'], kde=True, ax=ax2, color="lightgreen")
+st.pyplot(fig2)
+# Decor Style Preference
+st.markdown("**Preferred Decor Style**")
+style_count = df["Preferred Decor Style"].value_counts()
+fig3, ax3 = plt.subplots()
+style_count.plot.pie(autopct='%1.1f%%', startangle=90, ax=ax3)
+ax3.axis("equal")
+st.pyplot(fig3)
+# DIY vs DIFM Preference
+st.markdown("**DIY vs DIFM Preference**")
+fig4, ax4 = plt.subplots()
+sns.countplot(x="Preference (DIY/DIFM)", data=df, palette="Set2", ax=ax4)
+st.pyplot(fig4)
+st.subheader(" Budget Recommendation System")
+age = st.slider("Select Age", min_value=18, max_value=70, step=1)
+income = st.slider("Select Monthly Income (INR)", min_value=10000, max_value=200000,
+step=1000)
+style = st.selectbox("Select Preferred Decor Style", df["Preferred Decor Style"].unique())
+preference = st.radio("DIY or DIFM?", ("DIY", "DIFM"))
+# Rule-based budget recommendation
+if preference == "DIY":
+recommended_budget = int(income * 0.1)
+approach = "You prefer doing things yourself! Allocate a modest budget and focus on
+tools, materials, and creative inputs."
+else:
+recommended_budget = int(income * 0.25)
+approach = "Since you prefer professionals, expect higher costs for labor and services."
+st.markdown(f"### Recommended Budget: ₹{recommended_budget}")
+st.info(approach)
